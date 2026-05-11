@@ -383,21 +383,33 @@ fn boxsum3_8bpc(
     w: usize,
     h: usize,
 ) {
+    // Match the scalar 3x3 SGR layout: the first source row and the first/last
+    // source columns are never consumed by later coefficient calculations.  For
+    // a full-height restoration unit (h == 64, passed here as 70 including
+    // padding), writing every row in 1..h-1 would touch row 68 of a 68-row
+    // scratch buffer, which is one past the end.
+    let src = &src[REST_UNIT_STRIDE..];
+
     // Vertical pass: sum 3 consecutive rows
-    for x in 0..w {
+    for x in 1..(w - 1) {
+        let mut sum_v = x;
+        let mut sumsq_v = x;
+
         let mut a = src[x] as i32;
         let mut a2 = a * a;
-        let mut b = src[1 * REST_UNIT_STRIDE + x] as i32;
+        let mut b = src[REST_UNIT_STRIDE + x] as i32;
         let mut b2 = b * b;
 
-        for y in 1..(h - 1) {
-            let s_idx = (y + 1) * REST_UNIT_STRIDE + x;
+        let mut s_idx = REST_UNIT_STRIDE + x;
+
+        for _ in 2..(h - 2) {
+            s_idx += REST_UNIT_STRIDE;
             let c = src[s_idx] as i32;
             let c2 = c * c;
-
-            let out_idx = y * REST_UNIT_STRIDE + x;
-            sum[out_idx] = (a + b + c) as i16;
-            sumsq[out_idx] = a2 + b2 + c2;
+            sum_v += REST_UNIT_STRIDE;
+            sumsq_v += REST_UNIT_STRIDE;
+            sum[sum_v] = (a + b + c) as i16;
+            sumsq[sumsq_v] = a2 + b2 + c2;
 
             a = b;
             a2 = b2;
@@ -407,26 +419,28 @@ fn boxsum3_8bpc(
     }
 
     // Horizontal pass: sum 3 consecutive columns
-    for y in 1..(h - 1) {
-        let row_start = y * REST_UNIT_STRIDE;
+    let mut sum_idx = REST_UNIT_STRIDE;
+    let mut sumsq_idx = REST_UNIT_STRIDE;
+    for _ in 2..(h - 2) {
+        let mut a = sum[sum_idx + 1] as i32;
+        let mut a2 = sumsq[sumsq_idx + 1];
+        let mut b = sum[sum_idx + 2] as i32;
+        let mut b2 = sumsq[sumsq_idx + 2];
 
-        let mut a = sum[row_start] as i32;
-        let mut a2 = sumsq[row_start];
-        let mut b = sum[row_start + 1] as i32;
-        let mut b2 = sumsq[row_start + 1];
+        for x in 2..(w - 2) {
+            let c = sum[sum_idx + x + 1] as i32;
+            let c2 = sumsq[sumsq_idx + x + 1];
 
-        for x in 1..(w - 1) {
-            let c = sum[row_start + x + 1] as i32;
-            let c2 = sumsq[row_start + x + 1];
-
-            sum[row_start + x] = (a + b + c) as i16;
-            sumsq[row_start + x] = a2 + b2 + c2;
+            sum[sum_idx + x] = (a + b + c) as i16;
+            sumsq[sumsq_idx + x] = a2 + b2 + c2;
 
             a = b;
             a2 = b2;
             b = c;
             b2 = c2;
         }
+        sum_idx += REST_UNIT_STRIDE;
+        sumsq_idx += REST_UNIT_STRIDE;
     }
 }
 
@@ -461,8 +475,7 @@ fn selfguided_filter_8bpc(
     let base = 2 * REST_UNIT_STRIDE + 3;
 
     for row_offset in (0..(h + 2)).step_by(step) {
-        let row_start = (row_offset as isize - 1) as usize;
-        let aa_base = base + row_start * REST_UNIT_STRIDE - REST_UNIT_STRIDE;
+        let aa_base = (row_offset + 1) * REST_UNIT_STRIDE + 2;
 
         for i in 0..(w + 2) {
             let idx = aa_base + i;
@@ -919,21 +932,33 @@ fn boxsum3_16bpc(
     w: usize,
     h: usize,
 ) {
+    // Match the scalar 3x3 SGR layout: the first source row and the first/last
+    // source columns are never consumed by later coefficient calculations.  For
+    // a full-height restoration unit (h == 64, passed here as 70 including
+    // padding), writing every row in 1..h-1 would touch row 68 of a 68-row
+    // scratch buffer, which is one past the end.
+    let src = &src[REST_UNIT_STRIDE..];
+
     // Vertical pass: sum 3 consecutive rows
-    for x in 0..w {
+    for x in 1..(w - 1) {
+        let mut sum_v = x;
+        let mut sumsq_v = x;
+
         let mut a = src[x] as i64;
         let mut a2 = a * a;
-        let mut b = src[1 * REST_UNIT_STRIDE + x] as i64;
+        let mut b = src[REST_UNIT_STRIDE + x] as i64;
         let mut b2 = b * b;
 
-        for y in 1..(h - 1) {
-            let s_idx = (y + 1) * REST_UNIT_STRIDE + x;
+        let mut s_idx = REST_UNIT_STRIDE + x;
+
+        for _ in 2..(h - 2) {
+            s_idx += REST_UNIT_STRIDE;
             let c = src[s_idx] as i64;
             let c2 = c * c;
-
-            let out_idx = y * REST_UNIT_STRIDE + x;
-            sum[out_idx] = (a + b + c) as i32;
-            sumsq[out_idx] = a2 + b2 + c2;
+            sum_v += REST_UNIT_STRIDE;
+            sumsq_v += REST_UNIT_STRIDE;
+            sum[sum_v] = (a + b + c) as i32;
+            sumsq[sumsq_v] = a2 + b2 + c2;
 
             a = b;
             a2 = b2;
@@ -943,26 +968,28 @@ fn boxsum3_16bpc(
     }
 
     // Horizontal pass: sum 3 consecutive columns
-    for y in 1..(h - 1) {
-        let row_start = y * REST_UNIT_STRIDE;
+    let mut sum_idx = REST_UNIT_STRIDE;
+    let mut sumsq_idx = REST_UNIT_STRIDE;
+    for _ in 2..(h - 2) {
+        let mut a = sum[sum_idx + 1] as i64;
+        let mut a2 = sumsq[sumsq_idx + 1];
+        let mut b = sum[sum_idx + 2] as i64;
+        let mut b2 = sumsq[sumsq_idx + 2];
 
-        let mut a = sum[row_start] as i64;
-        let mut a2 = sumsq[row_start];
-        let mut b = sum[row_start + 1] as i64;
-        let mut b2 = sumsq[row_start + 1];
+        for x in 2..(w - 2) {
+            let c = sum[sum_idx + x + 1] as i64;
+            let c2 = sumsq[sumsq_idx + x + 1];
 
-        for x in 1..(w - 1) {
-            let c = sum[row_start + x + 1] as i64;
-            let c2 = sumsq[row_start + x + 1];
-
-            sum[row_start + x] = (a + b + c) as i32;
-            sumsq[row_start + x] = a2 + b2 + c2;
+            sum[sum_idx + x] = (a + b + c) as i32;
+            sumsq[sumsq_idx + x] = a2 + b2 + c2;
 
             a = b;
             a2 = b2;
             b = c;
             b2 = c2;
         }
+        sum_idx += REST_UNIT_STRIDE;
+        sumsq_idx += REST_UNIT_STRIDE;
     }
 }
 
@@ -995,8 +1022,7 @@ fn selfguided_filter_16bpc(
     let base = 2 * REST_UNIT_STRIDE + 3;
 
     for row_offset in (0..(h + 2)).step_by(step) {
-        let row_start = (row_offset as isize - 1) as usize;
-        let aa_base = base + row_start * REST_UNIT_STRIDE - REST_UNIT_STRIDE;
+        let aa_base = (row_offset + 1) * REST_UNIT_STRIDE + 2;
 
         for i in 0..(w + 2) {
             let idx = aa_base + i;
@@ -1459,4 +1485,20 @@ pub fn lr_filter_dispatch<BD: BitDepth>(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sgr_3x3_16bpc_full_height_does_not_overrun_scratch() {
+        let mut dst = [0i32; 64 * MAX_RESTORATION_WIDTH];
+        let mut src = [0u16; (64 + 3 + 3) * REST_UNIT_STRIDE];
+        for (i, pixel) in src.iter_mut().enumerate() {
+            *pixel = (i % 1024) as u16;
+        }
+
+        selfguided_filter_16bpc(&mut dst, &src, MAX_RESTORATION_WIDTH, 64, 9, 100, 1023);
+    }
 }
